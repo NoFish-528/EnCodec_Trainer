@@ -13,6 +13,6 @@ def generate_csv(file_dir, csv_path):
             f.write(file + '\n')
 
 if __name__ == '__main__':
-    file_dir = '/mnt/lustre/sjtu/home/zkn02/data/LibriSpeech'
-    csv_path = './librispeech_train960h.csv'
+    file_dir = '/mnt/lustre/sjtu/home/zkn02/data/LibriSpeech/train-clean-100'
+    csv_path = './librispeech_train100h.csv'
     generate_csv(file_dir, csv_path)
