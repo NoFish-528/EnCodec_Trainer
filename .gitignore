@@ -171,3 +171,4 @@ cython_debug/
 
 modules/__pycache__
 wandb/
+outputs/*
