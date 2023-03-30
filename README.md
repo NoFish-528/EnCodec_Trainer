@@ -1,3 +1,30 @@
+# Notes
+Thank you for Mikxox/EnCodec_Trainer
+I add some notes to help you understand the code and train the model.
+## Step 1 Generate the training data csv
+
+Use the generate_train_file.py to generate the training data.
+
+I Only focus on the data's path and if you use other data official csv, you need to change the customAudioDataset.py.
+
+## Step 2 Train the model
+if you want to train the model, you can use the train.py.
+
+This code support the multi-gpu training and single gpu training.
+
+* multi-gpu training
+
+```shell
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+torchrun --nproc_per_node=4 train.py data_parallel=True [some args you want to change]
+```
+
+* single-gpu training
+  
+```shell
+python train.py [some args you want to change]
+```
+
 # EnCodec_Trainer
 
 Implementation to add training function with loss to https://github.com/facebookresearch/encodec \

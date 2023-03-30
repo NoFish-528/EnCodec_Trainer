@@ -17,5 +17,4 @@ gamma: 0.1
 disc_gamma: 0.1
 fixed_length: 0
 data_parallel: True
-nprocs_per_node: 1
 find_unused_parameters: False
