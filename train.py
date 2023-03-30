@@ -1,5 +1,4 @@
 import os
-local_rank = int(os.environ["LOCAL_RANK"]) #也可以自动获取
 import torch
 import torch.optim as optim
 import customAudioDataset as data
@@ -11,32 +10,11 @@ from msstftd import MultiScaleSTFTDiscriminator
 from audio_to_mel import Audio2Mel
 from torch.optim.lr_scheduler import StepLR
 import torch.distributed as dist
-from omegaconf import OmegaConf
+import torch.multiprocessing as mp
+import hydra
 import warnings
 warnings.filterwarnings("ignore")
-import wandb
-wandb.init(project='encodec', name='train_encodec')
 
-config = wandb.config
-
-config.batch_size = 2
-config.tensor_cut = 3200000
-config.max_epoch = 10000 
-config.save_folder = f'saves/new7/'
-config.save_location = f'{config.save_folder}batch{config.batch_size}_cut{config.tensor_cut}_' 
-config.lr = 3e-4
-config.disc_lr = 3e-4
-config.seed = 3401
-config.target_bandwidths = [1.5, 3., 6, 12., 24.]
-config.sample_rate = 24_000
-config.channels = 1
-config.log_interval = 100
-config.step_size = 1000
-config.disc_step_size =1000
-config.gamma = 0.1
-config.disc_gamma = 0.1
-config.fixed_length = 0
-config.data_parallel = True
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -121,42 +99,46 @@ def train_one_step(epoch,optimizer,optimizer_disc, model, disc, trainloader):
         loss_enc.backward(retain_graph=True)
         loss.backward()
         optimizer.step()
-    if dist.get_rank() == 0:
-        wandb.log({
-            'epoch': epoch,
-            'loss': loss.item(),
-        })
-        print(f'| epoch: {epoch} | loss: {loss.item()} |')
+    print(f'| epoch: {epoch} | loss: {loss.item()} |')
 
-def train(train_csv_path,config):
+@hydra.main(config_path='config', config_name='config')
+def train(config):
+    print(config)
     if not os.path.exists(config.save_folder):
         os.makedirs(config.save_folder)
-    set_seed(config.seed)
+
+    if config.seed is not None:
+        set_seed(config.seed)
 
     if config.fixed_length > 0:
-        trainset = data.CustomAudioDataset(train_csv_path,tensor_cut=config.tensor_cut, fixed_length=config.fixed_length)
+        trainset = data.CustomAudioDataset(config.train_csv_path,tensor_cut=config.tensor_cut, fixed_length=config.fixed_length)
     else:
-        trainset = data.CustomAudioDataset(train_csv_path,tensor_cut=config.tensor_cut)
+        trainset = data.CustomAudioDataset(config.train_csv_path,tensor_cut=config.tensor_cut)
     
-    if config.data_parallel:
-        # 创建Dataloader
-        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn)
-    else:
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn,)
-
-
-
+    
     model = EncodecModel._get_model(
                 config.target_bandwidths, config.sample_rate, config.channels,
                 causal=False, model_norm='time_group_norm', audio_normalize=True,
                 segment=1., name='my_encodec_24khz')
     disc_model = MultiScaleSTFTDiscriminator(filters=32)
+
     if config.data_parallel:
+        print("Use distributed data parallel to train the encodec")
+        local_rank=int(os.environ['LOCAL_RANK'])
+        torch.distributed.init_process_group(backend='nccl') # 选择nccl后端，初始化进程组   
+        torch.cuda.set_device(local_rank) # 调整计算的位置
+        # 创建Dataloader
+        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn)
         model.cuda()
-        model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=config.find_unused_parameters)
         disc_model.cuda()
-        disc_model = torch.nn.parallel.DistributedDataParallel(disc_model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=True)
+        disc_model = torch.nn.parallel.DistributedDataParallel(disc_model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=config.find_unused_parameters)
+    else:
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn,pin_memory=True                                                                                                                                                                                                                                                                                                                                                                                                           )
+        model.cuda()
+        disc_model.cuda()
+
 
     model.train()
     disc_model.train()
@@ -172,16 +154,14 @@ def train(train_csv_path,config):
         train_one_step(epoch, optimizer, optimizer_disc, model, disc_model, trainloader)
         scheduler.step()
         disc_scheduler.step()
-        if epoch % config.log_interval == 0 and dist.get_rank() == 0:
-            torch.save(model.module.cpu().state_dict(), f'{config.save_location}epoch{epoch}.pth')
-            torch.save(disc_model.module.cpu().state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
+        if epoch % config.log_interval == 0:
+            if config.data_parallel and dist.get_rank() == 0:
+                torch.save(model.module.state_dict(), f'{config.save_location}epoch{epoch}.pth')
+                torch.save(disc_model.module.state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
+            else:
+                torch.save(model.state_dict(), f'{config.save_location}epoch{epoch}.pth')
+                torch.save(disc_model.state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
 
 
-
-
-
-torch.cuda.set_device(local_rank) # 调整计算的位置
-torch.distributed.init_process_group(backend='nccl') # 选择nccl后端，初始化进程组   
-train_csv_path = '/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/librispeech_train960h.csv'
-train(train_csv_path=train_csv_path,config=config)
-
+if __name__ == '__main__':
+    train()
