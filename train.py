@@ -12,8 +12,12 @@ from torch.optim.lr_scheduler import StepLR
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import hydra
+import logging
 import warnings
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
 def set_seed(seed):
@@ -99,10 +103,22 @@ def train_one_step(epoch,optimizer,optimizer_disc, model, disc, trainloader):
         loss_enc.backward(retain_graph=True)
         loss.backward()
         optimizer.step()
-    print(f'| epoch: {epoch} | loss: {loss.item()} |')
+    logger.info(f'| epoch: {epoch} | loss: {loss.item()} |')
 
 @hydra.main(config_path='config', config_name='config')
 def train(config):
+    file_handler = logging.FileHandler(f"train_encodec__bs{config.batch_size}_lr{config.lr}.log")
+    formatter = logging.Formatter('%(asctime)s: %(levelname)s: [%(filename)s: %(lineno)d]: %(message)s')
+    file_handler.setFormatter(formatter)
+
+    # print to screen
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.DEBUG)
+
+    # add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
     print(config)
     if not os.path.exists(config.save_folder):
         os.makedirs(config.save_folder)
@@ -164,4 +180,6 @@ def train(config):
 
 
 if __name__ == '__main__':
+
+
     train()

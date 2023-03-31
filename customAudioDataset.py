@@ -18,7 +18,10 @@ class CustomAudioDataset(torch.utils.data.Dataset):
         return len(self.audio_labels)
 
     def __getitem__(self, idx):
-        waveform, sample_rate = torchaudio.load(self.audio_labels.iloc[idx, :].values[0])
+        wav_file_path = self.audio_labels.iloc[idx, :].values[0]
+        waveform, sample_rate = torchaudio.load(wav_file_path)
+        print(wav_file_path)
+        print(waveform.size())
         if self.transform:
             waveform = self.transform(waveform)
 
@@ -26,5 +29,8 @@ class CustomAudioDataset(torch.utils.data.Dataset):
             if waveform.size()[1] > self.tensor_cut:
                 start = random.randint(0, waveform.size()[1]-self.tensor_cut-1)
                 waveform = waveform[:, start:start+self.tensor_cut]
-        return waveform, sample_rate
+                return waveform, sample_rate
+            else:
+                return waveform, sample_rate
+        
 
