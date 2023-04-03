@@ -13,6 +13,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import hydra
 import logging
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -80,15 +81,12 @@ def train_one_step(epoch,optimizer,optimizer_disc, model, disc, trainloader):
     for input_wav in tqdm(trainloader):
         train_d = not train_d
         input_wav = input_wav.cuda()
-
         optimizer.zero_grad()
-        model.zero_grad()
         optimizer_disc.zero_grad()
-        disc.zero_grad()
 
         output, loss_enc, _ = model(input_wav)
-
         logits_real, fmap_real = disc(input_wav)
+        
         if train_d:
             logits_fake, _ = disc(model(input_wav)[0].detach())
             loss = disc_loss(logits_real, logits_fake)
@@ -141,17 +139,22 @@ def train(config):
     if config.data_parallel:
         print("Use distributed data parallel to train the encodec")
         local_rank=int(os.environ['LOCAL_RANK'])
-        torch.distributed.init_process_group(backend='nccl') # 选择nccl后端，初始化进程组   
         torch.cuda.set_device(local_rank) # 调整计算的位置
+        print("-"*20)
+        print(local_rank)
+        print("-"*20)
+        torch.cuda.empty_cache()
+        torch.distributed.init_process_group(backend='nccl') # 选择nccl后端，初始化进程组   
+ 
         # 创建Dataloader
         train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn,pin_memory=True,num_workers=config.num_workers)
         model.cuda()
         model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=config.find_unused_parameters)
         disc_model.cuda()
         disc_model = torch.nn.parallel.DistributedDataParallel(disc_model,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=config.find_unused_parameters)
     else:
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn,pin_memory=True                                                                                                                                                                                                                                                                                                                                                                                                           )
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn,pin_memory=True)
         model.cuda()
         disc_model.cuda()
 
