@@ -99,7 +99,10 @@ def train_one_step(epoch,optimizer,optimizer_disc, model, disc_model, trainloade
             # loss.backward()
             print(loss)
             print(f"last loss:{last_loss}")
-            if loss > last_loss/2:
+            # if loss > last_loss/2:
+            #     loss.backward()
+            #     optimizer_disc.step()
+            if epoch % 4 == 0:
                 loss.backward()
                 optimizer_disc.step()
             last_loss = 0
