@@ -18,10 +18,7 @@ class CustomAudioDataset(torch.utils.data.Dataset):
         return len(self.audio_labels)
 
     def __getitem__(self, idx):
-        wav_file_path = self.audio_labels.iloc[idx, :].values[0]
-        waveform, sample_rate = torchaudio.load(wav_file_path)
-        print(wav_file_path)
-        print(waveform.size())
+        waveform, sample_rate = torchaudio.load(self.audio_labels.iloc[idx, :].values[0])
         if self.transform:
             waveform = self.transform(waveform)
 
