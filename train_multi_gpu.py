@@ -6,6 +6,7 @@ import numpy as np
 import random
 from tqdm import tqdm
 import torch.nn as nn
+import torch._dynamo.config
 from model import EncodecModel 
 from msstftd import MultiScaleSTFTDiscriminator
 from audio_to_mel import Audio2Mel
@@ -30,24 +31,30 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     np.random.seed(seed)
     random.seed(seed)
-
-def total_loss(fmap_real, logits_fake, fmap_fake, wav1, wav2, sample_rate=24000):
+def total_loss(fmap_real, logits_fake, fmap_fake, input_wav, output_wav, sample_rate=24000):
     relu = torch.nn.ReLU()
     l1Loss = torch.nn.L1Loss(reduction='mean')
     l2Loss = torch.nn.MSELoss(reduction='mean')
     loss = torch.tensor([0.0], device='cuda', requires_grad=True)
-    factor = 100 / (len(fmap_real) * len(fmap_real[0]))
+    l_t = torch.tensor([0.0], device='cuda', requires_grad=True)
+    l_f = torch.tensor([0.0], device='cuda', requires_grad=True)
+    l_g = torch.tensor([0.0], device='cuda', requires_grad=True)
+    l_feat = torch.tensor([0.0], device='cuda', requires_grad=True)
 
-    for tt1 in range(len(fmap_real)):
-        loss = loss + (torch.mean(relu(1 - logits_fake[tt1])) / len(logits_fake))
-        for tt2 in range(len(fmap_real[tt1])):
-            loss = loss + (l1Loss(fmap_real[tt1][tt2].detach(), fmap_fake[tt1][tt2]) * factor)
-    loss = loss * (2/3)
-
+    #time domain loss
+    l_t = l1Loss(input_wav, output_wav) 
+    #frequency domain loss
     for i in range(5, 11):
         fft = Audio2Mel(win_length=2 ** i, hop_length=2 ** i // 4, n_mel_channels=64, sampling_rate=sample_rate)
-        loss = loss + l1Loss(fft(wav1), fft(wav2)) + l2Loss(fft(wav1), fft(wav2))
-    loss = (loss / 6) + l1Loss(wav1, wav2)
+        l_f = l1Loss(fft(input_wav), fft(output_wav)) + l2Loss(fft(input_wav), fft(output_wav))
+    
+    #generator loss and feat loss
+    for tt1 in range(len(fmap_real)):
+        l_g = l_g + torch.mean(relu(1 - logits_fake[tt1])) / len(logits_fake)
+        for tt2 in range(len(fmap_real[tt1])):
+            l_feat = l_feat + l1Loss(fmap_real[tt1][tt2].detach(), fmap_fake[tt1][tt2]) / torch.mean(torch.abs(fmap_real[tt1][tt2].detach()))
+
+    loss = 3*l_g + 3*l_feat + (l_t / 10) + l_f
     return loss
 
 def disc_loss(logits_real, logits_fake):
@@ -76,41 +83,35 @@ def collate_fn(batch):
     tensors = pad_sequence(tensors)
     return tensors
 
-def train_one_step(epoch,optimizer,optimizer_disc, model, disc_model, trainloader):
+def train_one_step(epoch,optimizer,optimizer_disc, model, disc_model, trainloader,config):
     model.train()
     disc_model.train()
 
-    last_loss = 0
-    train_d = False
-
     for input_wav in tqdm(trainloader):
-        train_d = not train_d
-        input_wav = input_wav.cuda()
+        input_wav = input_wav.cuda() #[B, 1, T]: eg. [2, 1, 203760]
         optimizer.zero_grad()
         optimizer_disc.zero_grad()
 
-        output, loss_enc, _ = model(input_wav)
+        output, loss_enc, _ = model(input_wav) #output: [B, 1, T]: eg. [2, 1, 203760] | loss_enc: [1] 
         logits_real, fmap_real = disc_model(input_wav)
 
-        
-        if train_d:
+        if config.train_discriminator:
             logits_fake, _ = disc_model(model(input_wav)[0].detach())
-            loss = disc_loss(logits_real, logits_fake)
-            # loss.backward()
-            print(loss)
-            print(f"last loss:{last_loss}")
-            # if loss > last_loss/2:
-            #     loss.backward()
-            #     optimizer_disc.step()
-            if epoch % 4 == 0:
-                loss.backward()
-                optimizer_disc.step()
-            last_loss = 0
+            loss_disc = disc_loss(logits_real, logits_fake)
+            # avoid discriminator overpower the encoder
+            if config.sample_rate == 24000:
+                if epoch % 2==0:
+                    loss_disc.backward()
+                    optimizer_disc.step()
+
+            if config.sample_rate == 48000:
+                if epoch %3 == 0:
+                    loss_disc.backward()
+                    optimizer_disc.step()
+  
 
         logits_fake, fmap_fake = disc_model(output)
-        loss = total_loss(fmap_real, logits_fake, fmap_fake, input_wav, output)
-        last_loss += loss.item()
-        loss_enc.backward(retain_graph=True)
+        loss = total_loss(fmap_real, logits_fake, fmap_fake, input_wav, output) + loss_enc
         loss.backward()
         optimizer.step()
 
@@ -156,18 +157,27 @@ def train(local_rank,world_size,config):
             backend='nccl',
             rank=local_rank,
             world_size=world_size)
+        
         torch.cuda.set_device(local_rank) 
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
+        if config.compile_debug:
+            torch._dynamo.config.verbose=True
+            torch._dynamo.config.suppress_errors = True
+            torch.autograd.set_detect_anomaly(True)
         if dist.get_rank()==0:
             print(config)
-          
-        # 创建Dataloader
+
         train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn,pin_memory=True,num_workers=config.num_workers)
         model.cuda()
         model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[local_rank],output_device=local_rank,broadcast_buffers=False,find_unused_parameters=config.find_unused_parameters)
         disc_model.cuda()
         disc_model = torch.nn.parallel.DistributedDataParallel(disc_model,device_ids=[local_rank],output_device=local_rank,broadcast_buffers=False,find_unused_parameters=config.find_unused_parameters)
+        
+        if config.compile:
+            model = torch.compile(model,mode="max-autotune")
+            disc_model = torch.compile(disc_model,mode="max-autotune")
+            
     else:
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn,pin_memory=True)
         model.cuda()
@@ -181,16 +191,16 @@ def train(local_rank,world_size,config):
     disc_scheduler = StepLR(optimizer_disc, step_size=config.disc_step_size, gamma=config.disc_gamma)
 
     for epoch in range(1, config.max_epoch):
-        train_one_step(epoch, optimizer, optimizer_disc, model, disc_model, trainloader)
+        train_one_step(epoch, optimizer, optimizer_disc, model, disc_model, trainloader,config)
         scheduler.step()
         disc_scheduler.step()
         if epoch % config.log_interval == 0:
             if config.data_parallel and dist.get_rank() == 0:
-                torch.save(model.module.state_dict(), f'{config.save_location}epoch{epoch}.pth')
-                torch.save(disc_model.module.state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
+                torch.save(model.module.state_dict(), f'{config.save_location}epoch{epoch}_lr{config.lr}.pth')
+                torch.save(disc_model.module.state_dict(), f'{config.save_location}epoch{epoch}_disc_lr{config.lr}.pth')
             else:
-                torch.save(model.state_dict(), f'{config.save_location}epoch{epoch}.pth')
-                torch.save(disc_model.state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
+                torch.save(model.state_dict(), f'{config.save_location}epoch{epoch}_lr{config.lr}.pth')
+                torch.save(disc_model.state_dict(), f'{config.save_location}epoch{epoch}_disc_lr{config.lr}.pth')
     if config.data_paraller:
         dist.destroy_process_group()
 
@@ -212,7 +222,7 @@ def main(config):
             join=True
         )
     else:
-        train(0,0,config)
+        train(1,1,config)
 
 
 if __name__ == '__main__':
