@@ -24,3 +24,4 @@ torch_distributed_debug: False
 compile_debug: False
 compile: False
 train_discriminator: True
+warmup_epoch: 5

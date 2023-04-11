@@ -52,11 +52,11 @@ device = 'cpu' # cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fp
 # torch.backends.cudnn.allow_tf32 = False
 
 
-song = Path('audio/song_input.wav')
-output = Path('audio/output_song.ecdc')
-outputw = Path('audio/output_song.wav')
-model_name = 'my_encodec_24khz' # 'encodec_24khz'
-model = MODELS[model_name](checkpoint_name='saves/batch29_cut100000_epoch10.pth').to(device)
+song = Path('/mnt/lustre/sjtu/home/zkn02/data/LibriSpeech/dev-clean/251/118436/251-118436-0001.flac')
+output = Path('/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/audio/251-118436-0001_1200_repo.ecdc')
+outputw = Path('/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/audio/251-118436-0001_1200_repo.wav')
+model_name = 'my_encodec' # 'encodec_24khz'
+model = MODELS[model_name](checkpoint_name='/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/saves/batch29_cut100000_epoch10.pth').to(device)
 
 model.train()
 wav, sr = torchaudio.load(song)
@@ -96,7 +96,7 @@ with open(output, 'rb') as newFile:
         tt = model.quantizer.decode(tt)
         encoded_list.append((tt, torch.tensor(struct.unpack_from('f', buf, offset)).to(device)))
         offset += 1 * 4
-
+model.set_target_bandwidth(12)
 output_wav = model.decode(encoded_list)
 output_wav = output_wav.to('cpu')
 output_wav = torch.squeeze(output_wav)

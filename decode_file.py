@@ -5,7 +5,7 @@ from utils import save_audio
 import struct
 
 # path to encoded file
-input = Path('audio/input_file.ecdc')
+input = Path('/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/audio/1_funk_80_beat_4-4_1.wav')
 
 # path to output decoded wav file
 output = Path('audio/output_song.wav')
@@ -20,8 +20,8 @@ device = 'cpu' # cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fp
 # torch.backends.cuda.matmul.allow_tf32 = False
 # torch.backends.cudnn.allow_tf32 = False
 
-model_name = 'my_encodec_24khz' # 'encodec_24khz'
-model = MODELS[model_name](checkpoint_name='saves/batch29_cut100000_epoch10.pth').to(device)
+model_name = 'my_encodec' # 'encodec_24khz'
+model = MODELS[model_name](checkpoint_name='/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/outputs/2023-04-06/19-57-49/save/batch4_cut200000_lr1e-05_epoch1_lr1e-05.pt').to(device)
 
 encoded_list = []
 with open(input, 'rb') as newFile:

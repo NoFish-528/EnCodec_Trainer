@@ -12,7 +12,8 @@ import typing as tp
 
 import torch
 import torchaudio
-
+import numpy as np
+import random
 
 def _linear_overlap_add(frames: tp.List[torch.Tensor], stride: int):
     # Generic overlap add, with linear fade-in/fade-out, supporting complex scenario
@@ -98,3 +99,12 @@ def save_audio(wav: torch.Tensor, path: tp.Union[Path, str],
     else:
         wav = wav.clamp(-limit, limit)
     torchaudio.save(path, wav, sample_rate=sample_rate, encoding='PCM_S', bits_per_sample=16)
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
