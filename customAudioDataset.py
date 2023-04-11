@@ -31,3 +31,20 @@ class CustomAudioDataset(torch.utils.data.Dataset):
                 return waveform, sample_rate
         
 
+def pad_sequence(batch):
+    # Make all tensor in a batch the same length by padding with zeros
+    batch = [item.permute(1, 0) for item in batch]
+    batch = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0.)
+    batch = batch.permute(0, 2, 1)
+    return batch
+
+
+def collate_fn(batch):
+    tensors = []
+
+    for waveform, _ in batch:
+        tensors += [waveform]
+
+    # Group the list of tensors into a batched tensor
+    tensors = pad_sequence(tensors)
+    return tensors

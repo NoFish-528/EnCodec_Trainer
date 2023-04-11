@@ -336,7 +336,7 @@ class EncodecModel(nn.Module):
         model = EncodecModel._get_model(
                 target_bandwidths, sample_rate, channels,
                 causal=False, model_norm='time_group_norm', audio_normalize=True,
-                segment=1., name='my_encodec_24khz')
+                segment=1., name='my_encodec')
         pre_dic = torch.load(checkpoint_name)
         model.load_state_dict(pre_dic)
         model.eval()
