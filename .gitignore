@@ -174,3 +174,6 @@ wandb/
 outputs/*
 *.log
 *.txt
+*.wav
+*.ecdc
+*.flac
