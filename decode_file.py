@@ -8,7 +8,7 @@ import struct
 input = Path('/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/audio/1_funk_80_beat_4-4_1.wav')
 
 # path to output decoded wav file
-output = Path('audio/output_song.wav')
+output = Path('audio/output_song_new.wav')
 
 
 device = 'cpu' # cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, ort, xla, lazy, vulkan, mps, meta, hpu, privateuseone
@@ -21,8 +21,8 @@ device = 'cpu' # cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fp
 # torch.backends.cudnn.allow_tf32 = False
 
 model_name = 'my_encodec' # 'encodec_24khz'
-model = MODELS[model_name](checkpoint_name='/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/outputs/2023-04-06/19-57-49/save/batch4_cut200000_lr1e-05_epoch1_lr1e-05.pt').to(device)
-
+model = MODELS[model_name](checkpoint_name='/mnt/lustre/sjtu/home/zkn02/EnCodec_Trainer/outputs/2023-04-11/09-10-26/save/batch4_cut180000_lr5e-05_epoch32_lr5e-05.pt').to(device)
+model.set_target_bandwidth(1.5)
 encoded_list = []
 with open(input, 'rb') as newFile:
     buf = newFile.read()
