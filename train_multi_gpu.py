@@ -106,7 +106,6 @@ def train(local_rank,world_size,config):
         train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=config.batch_size, sampler=train_sampler, collate_fn=collate_fn,pin_memory=True,num_workers=config.num_workers)
         model.cuda()
-        model.train_quantization = True
         model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[local_rank],output_device=local_rank,broadcast_buffers=False,find_unused_parameters=config.find_unused_parameters)
         disc_model.cuda()
         disc_model = torch.nn.parallel.DistributedDataParallel(disc_model,device_ids=[local_rank],output_device=local_rank,broadcast_buffers=False,find_unused_parameters=config.find_unused_parameters)

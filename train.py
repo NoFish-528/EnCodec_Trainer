@@ -12,6 +12,7 @@ from msstftd import MultiScaleSTFTDiscriminator
 from audio_to_mel import Audio2Mel
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR
 from scheduler import WarmUpLR
+from losses import total_loss,disc_loss
 import hydra
 import logging
 import warnings
@@ -102,7 +103,7 @@ def train(config):
     warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch,config.warmup_epoch)
 
     for epoch in range(1, config.max_epoch):
-        train_one_step(epoch, optimizer, optimizer_disc, model, disc_model, trainloader)
+        train_one_step(epoch, optimizer, optimizer_disc, model, disc_model, trainloader,config,scheduler,disc_scheduler,warmup_scheduler)
         if epoch % config.log_interval == 0:
             torch.save(model.state_dict(), f'{config.save_location}epoch{epoch}.pth')
             torch.save(disc_model.state_dict(), f'{config.save_location}epoch{epoch}_disc.pth')
